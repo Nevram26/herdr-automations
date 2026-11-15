@@ -1,3 +1,7 @@
+//go:build !windows
+
+// Unix-only: these tests stand in for herdr and hc with #!/bin/sh scripts.
+
 package herdr
 
 import (

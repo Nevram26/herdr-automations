@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -55,6 +56,15 @@ const (
 	BackendHerdr Backend = "herdr" // the TUI's server; the default
 	BackendHC    Backend = "hc"    // herdr-core, shown by the desktop app
 )
+
+// DefaultBackend is what an unset backend means: the TUI's server, except on
+// Windows, where Herdr ships only the desktop app and its herdr-core.
+func DefaultBackend() Backend {
+	if runtime.GOOS == "windows" {
+		return BackendHC
+	}
+	return BackendHerdr
+}
 
 // Automation is one scheduled entry: a prompt (or delegated workflow) fired
 // on a cron schedule against an agent in a provisioned workspace.
@@ -291,7 +301,7 @@ func Path() string { return filepath.Join(Dir(), "automations.yaml") }
 func Load() (*Config, error) {
 	raw, err := os.ReadFile(Path())
 	if os.IsNotExist(err) {
-		return &Config{}, nil
+		return &Config{Backend: DefaultBackend()}, nil
 	}
 	if err != nil {
 		return nil, err
@@ -315,7 +325,7 @@ func parse(raw []byte) (*Config, error) {
 	}
 	switch doc.Backend {
 	case "":
-		doc.Backend = BackendHerdr
+		doc.Backend = DefaultBackend()
 	case BackendAuto, BackendHerdr, BackendHC:
 	default:
 		return nil, fmt.Errorf("%s: backend must be herdr, hc or auto, got %q", Path(), doc.Backend)
@@ -401,9 +411,9 @@ func Save(cfg *Config) error {
 	if err := os.MkdirAll(Dir(), 0o755); err != nil {
 		return err
 	}
-	// herdr is the default: writing it would add a line to every file saved.
+	// The default is not written: it would add a line to every file saved.
 	out := *cfg
-	if out.Backend == BackendHerdr {
+	if out.Backend == DefaultBackend() {
 		out.Backend = ""
 	}
 	raw, err := yaml.Marshal(&out)

@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -53,10 +54,11 @@ func HCBin() string {
 	return "hc"
 }
 
-// usable reports whether path is something we could actually execute.
+// usable reports whether path is something we could actually execute. Windows
+// has no execute bits: there, any file will do.
 func usable(path string) bool {
 	info, err := os.Stat(path)
-	return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
+	return err == nil && !info.IsDir() && (runtime.GOOS == "windows" || info.Mode()&0o111 != 0)
 }
 
 // ConfigDir resolves the config directory. Under Herdr the env var is

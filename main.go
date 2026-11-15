@@ -9,8 +9,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"io"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/DnzzL/herdr-automations/internal/api"
@@ -47,7 +48,7 @@ Usage:
                                      Resume what pause stopped
   herdr-automations history [name] [--json]
                                      Show recent runs
-  herdr-automations put [--original <name>] [--dry-run] < automation.json
+  herdr-automations put [--original <name>] [--dry-run] [--entry <json>] < automation.json
                                      Write one automation; keys not sent are kept (the app panel's form)
   herdr-automations rm <name>        Delete one automation
   herdr-automations seen <run-id|--all>
@@ -366,14 +367,22 @@ func pauseCmd(args []string, disabled bool) error {
 // found. A refused entry is an answer, not an error: the form shows Problem.
 func putCmd(args []string) error {
 	args, dryRun := withoutFlag(args, "--dry-run")
-	original := ""
-	if len(args) == 2 && args[0] == "--original" {
-		original = args[1]
-	} else if len(args) != 0 {
-		return fmt.Errorf("usage: herdr-automations put [--original <name>] [--dry-run] < automation.json")
+	// --entry: the panel on Windows, where its only pipe (Git's sh) would mangle
+	// the backslashes of a JSON argument.
+	original, src := "", io.Reader(os.Stdin)
+	for len(args) >= 2 && (args[0] == "--original" || args[0] == "--entry") {
+		if args[0] == "--original" {
+			original = args[1]
+		} else {
+			src = strings.NewReader(args[1])
+		}
+		args = args[2:]
+	}
+	if len(args) != 0 {
+		return fmt.Errorf("usage: herdr-automations put [--original <name>] [--dry-run] [--entry <json>] < automation.json")
 	}
 	var raw json.RawMessage
-	if err := json.NewDecoder(os.Stdin).Decode(&raw); err != nil {
+	if err := json.NewDecoder(src).Decode(&raw); err != nil {
 		return fmt.Errorf("read automation JSON: %w", err)
 	}
 	var in api.Automation
@@ -418,7 +427,7 @@ func runDetached(args []string) error {
 	defer logf.Close()
 	cmd := exec.Command(exe, "run", args[0])
 	cmd.Stdout, cmd.Stderr = logf, logf
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = detached()
 	return cmd.Start()
 }
 
@@ -497,6 +506,12 @@ func serviceCmd(args []string) error {
 	case "uninstall":
 		if err := service.Uninstall(); err != nil {
 			return err
+		}
+		// launchd and systemd stop the daemon themselves; on Windows nothing does.
+		if pid, running := daemon.Running(); running && runtime.GOOS == "windows" {
+			if p, err := os.FindProcess(pid); err == nil {
+				_ = p.Kill()
+			}
 		}
 		fmt.Println("Uninstalled; automations.yaml and history are left where they are")
 	case "status":

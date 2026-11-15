@@ -37,7 +37,7 @@ func NewWith(h host.Host, n *notify.Notifier) *Runner { return &Runner{host: h, 
 
 // Default returns a Runner driving the backend automations.yaml names.
 func Default() *Runner {
-	b := config.BackendHerdr
+	b := config.DefaultBackend()
 	if cfg, err := config.Load(); err == nil {
 		b = cfg.Backend
 	}

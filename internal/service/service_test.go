@@ -48,3 +48,18 @@ func TestUnitCarriesTheDaemonAndItsEnvironment(t *testing.T) {
 		}
 	}
 }
+
+// The Windows logon script: env first, then the daemon in a restart loop, with
+// % doubled (a batch file would read %NAME% as a variable).
+func TestWindowsScriptSetsEnvAndRestartsTheDaemon(t *testing.T) {
+	got := script(Spec{Exe: `C:\bin\herdr-automations.exe`, Logs: `C:\state\daemon.log`, Env: map[string]string{"PATH": `C:\a;C:\100%`}})
+	for _, want := range []string{
+		`set "PATH=C:\a;C:\100%%"` + "\r\n",
+		":loop\r\n" + `"C:\bin\herdr-automations.exe" daemon --standby >> "C:\state\daemon.log" 2>&1` + "\r\n",
+		"goto loop\r\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("script missing %q:\n%s", want, got)
+		}
+	}
+}
