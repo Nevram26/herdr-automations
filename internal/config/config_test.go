@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -311,6 +312,7 @@ func TestExistingWorkspaceSurvivesConfigRoundTrip(t *testing.T) {
 
 func TestSessionNamesWhereTheRunHappens(t *testing.T) {
 	withConfig(t, `
+backend: herdr
 automations:
   - {name: triage, cron: "@daily", repo: /x, prompt: p, session: automations}
   - {name: here, cron: "@daily", repo: /x, prompt: p}
@@ -357,14 +359,19 @@ automations: []
 // A file written before backends existed keeps running where it always did.
 // Defaulting to auto would move every TUI user who also has the app to hc on
 // upgrade, without a word.
+// herdr, except on Windows: Herdr ships only the desktop app (hc) there.
 func TestLoadDefaultsBackendToHerdr(t *testing.T) {
 	withConfig(t, "automations: []\n")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Backend != BackendHerdr {
-		t.Fatalf("got %q", cfg.Backend)
+	want := BackendHerdr
+	if runtime.GOOS == "windows" {
+		want = BackendHC
+	}
+	if cfg.Backend != want {
+		t.Fatalf("got %q, want %q", cfg.Backend, want)
 	}
 }
 
