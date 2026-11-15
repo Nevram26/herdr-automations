@@ -114,7 +114,7 @@ func TestReleaseKeepsTheFileSoOnlyOneDaemonLocksIt(t *testing.T) {
 	defer next.Close()
 
 	release()
-	if err := syscall.Flock(int(next.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := tryLock(next, true); err != nil {
 		t.Fatalf("lock the released pidfile: %v", err)
 	}
 
@@ -165,7 +165,12 @@ func TestFailedReExecKeepsTheLock(t *testing.T) {
 
 	defer func(orig func(string, []string, []string) error) { execve = orig }(execve)
 	execve = func(string, []string, []string) error { return syscall.ENOEXEC }
-	restart(runner.New(nil), "", "binary changed")
+	if restart(runner.New(nil), "", "binary changed", false) {
+		t.Error("a daemon no service relaunches must stay on the old build")
+	}
+	if !restart(runner.New(nil), "", "binary changed", true) {
+		t.Error("the service daemon must leave so the service starts the new build")
+	}
 
 	out, err := runLockHelper(dir)
 	if err != nil {
@@ -208,7 +213,7 @@ func TestReinstallReExecsTheBinaryAtTheStartupPath(t *testing.T) {
 	defer func(orig func(string, []string, []string) error) { execve = orig }(execve)
 	var execd string
 	execve = func(path string, _ []string, _ []string) error { execd = path; return nil }
-	restart(runner.New(nil), exe, "binary changed")
+	restart(runner.New(nil), exe, "binary changed", false)
 	if execd != exe {
 		t.Errorf("re-exec targeted %q, want the startup path %q", execd, exe)
 	}

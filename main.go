@@ -9,8 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/DnzzL/herdr-automations/internal/api"
@@ -418,7 +418,7 @@ func runDetached(args []string) error {
 	defer logf.Close()
 	cmd := exec.Command(exe, "run", args[0])
 	cmd.Stdout, cmd.Stderr = logf, logf
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = detached()
 	return cmd.Start()
 }
 
@@ -497,6 +497,12 @@ func serviceCmd(args []string) error {
 	case "uninstall":
 		if err := service.Uninstall(); err != nil {
 			return err
+		}
+		// launchd and systemd stop the daemon themselves; on Windows nothing does.
+		if pid, running := daemon.Running(); running && runtime.GOOS == "windows" {
+			if p, err := os.FindProcess(pid); err == nil {
+				_ = p.Kill()
+			}
 		}
 		fmt.Println("Uninstalled; automations.yaml and history are left where they are")
 	case "status":

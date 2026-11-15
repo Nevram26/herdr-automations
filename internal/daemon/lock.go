@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/DnzzL/herdr-automations/internal/config"
 )
@@ -38,12 +37,12 @@ func acquireLock() (release func(), err error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := tryLock(f, true); err != nil {
 		f.Close()
 		// Only a held lock means a daemon. Reporting any other failure — a
 		// filesystem without flock, say — as one would send someone hunting
 		// for a process that does not exist.
-		if errors.Is(err, syscall.EWOULDBLOCK) {
+		if errors.Is(err, errLocked) {
 			return nil, fmt.Errorf("%w (pid %s)", ErrAlreadyRunning, holderPID(path))
 		}
 		return nil, fmt.Errorf("lock %s: %w", path, err)
@@ -70,7 +69,7 @@ func acquireLock() (release func(), err error) {
 // releaseFile drops the flock. Closing the descriptor would be enough, but
 // unlocking first keeps the intent obvious at the call sites.
 func releaseFile(f *os.File) {
-	syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	unlock(f)
 	f.Close()
 }
 
@@ -96,8 +95,8 @@ func Running() (int, bool) {
 		return 0, false
 	}
 	defer f.Close()
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); err == nil {
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	if err := tryLock(f, false); err == nil {
+		unlock(f)
 		return 0, false
 	}
 	pid, _ := strconv.Atoi(holderPID(f.Name()))

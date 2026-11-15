@@ -58,7 +58,7 @@ func Run(standby bool) error {
 	binary := binaryStamp(exe)
 	// The backend is settled once: a run must be awaited where it was
 	// started. Editing it in the file restarts the daemon (see the loop).
-	backend := config.BackendHerdr
+	backend := config.DefaultBackend()
 	if cfg, err := config.Load(); err == nil {
 		backend = cfg.Backend
 	}
@@ -99,11 +99,11 @@ func Run(standby bool) error {
 				log.Printf("running %s, installed is %s: leaving for the service to relaunch", exe, installed)
 				return nil
 			}
-			if stamp != binary && stamp != "" {
-				restart(runs, exe, "binary changed")
+			if stamp != binary && stamp != "" && restart(runs, exe, "binary changed", standby) {
+				return nil
 			}
-			if cfg, err := config.Load(); err == nil && cfg.Backend != backend {
-				restart(runs, exe, "backend changed")
+			if cfg, err := config.Load(); err == nil && cfg.Backend != backend && restart(runs, exe, "backend changed", standby) {
+				return nil
 			}
 			evaluate(state, runs, n)
 		case s := <-sigs:
@@ -260,19 +260,25 @@ func recordMissed(name string, count int, why string) {
 
 // restart re-executes the daemon so a plugin upgrade takes effect without
 // waiting for the Herdr server to be restarted.
-// execve is syscall.Exec, swappable so a test can make the re-exec fail.
-var execve = syscall.Exec
-
-func restart(runs *runner.Runner, exe, why string) {
+// restart re-executes the daemon in place. It reports true when the daemon
+// should leave instead: re-exec failed (always, on Windows) and it runs under
+// the service, which starts it again with the new build.
+func restart(runs *runner.Runner, exe, why string, standby bool) bool {
 	if runs.Busy() {
-		return // let the in-flight run finish; we'll notice again next tick
+		return false // let the in-flight run finish; we'll notice again next tick
 	}
 	log.Printf("%s, re-executing %s", why, exe)
 	// No release here: the lock's descriptor is close-on-exec, so a successful
 	// exec drops it for the new image, and a failed one leaves it held.
-	if err := execve(exe, os.Args, os.Environ()); err != nil {
+	err := execve(exe, os.Args, os.Environ())
+	if err != nil && standby {
+		log.Printf("re-exec failed (%v): leaving for the service to relaunch", err)
+		return true
+	}
+	if err != nil {
 		log.Printf("re-exec failed, continuing with the old build: %v", err)
 	}
+	return false
 }
 
 func binaryStamp(exe string) string {
